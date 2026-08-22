@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ห้องปฏิบัติการ AR: ระบบระบายความร้อนเซิร์ฟเวอร์ AI จุ่มของเหลว — RBRU MOOC Hyper-Realistic AR</title>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Prompt:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #020617; color: #f8fafc; font-family: 'Prompt', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+    #scene-container { position: absolute; inset: 0; z-index: 1; }
+    
+    .cam-box { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; border-radius: 16px; border: 2px solid #10b981; overflow: hidden; z-index: 10; box-shadow: 0 10px 35px rgba(0,0,0,0.85); background: #000; }
+    #camera-feed { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    #tracking-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 11; pointer-events: none; transform: scaleX(-1); }
+    
+    .ui-overlay { position: absolute; top: 0; left: 0; right: 0; z-index: 20; padding: 18px 24px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+    .header-card { background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); border-left: 6px solid #10b981; padding: 16px 22px; border-radius: 16px; max-width: 600px; pointer-events: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.75); }
+    .header-card h1 { font-size: 1.18em; font-weight: 700; color: #10b981; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; font-family: 'Chakra Petch', sans-serif; }
+    .header-card p { font-size: 0.85em; color: #cbd5e1; line-height: 1.55; }
+    
+    .status-badge { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.80em; color: #34d399; font-weight: 600; background: rgba(6, 78, 59, 0.6); padding: 4px 14px; border-radius: 20px; border: 1px solid #10b981; }
+    .dot-pulse { width: 8px; height: 8px; background: #34d399; border-radius: 50%; box-shadow: 0 0 10px #34d399; animation: pulse 1.5s infinite; }
+    
+    .hud-bar { position: absolute; bottom: 20px; left: 24px; z-index: 20; background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 14px 24px; display: flex; gap: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.75); }
+    .hud-item { display: flex; flex-direction: column; gap: 2px; }
+    .hud-label { font-size: 0.70em; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .hud-val { font-size: 1.15em; color: #facc15; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    
+    .control-panel { background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); padding: 12px 18px; border-radius: 16px; display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
+    .btn-action { background: linear-gradient(135deg, #0284c7, #10b981); color: #020617; font-weight: 700; border: none; padding: 9px 18px; border-radius: 10px; cursor: pointer; font-size: 0.84em; transition: all 0.2s; }
+    .btn-action:hover { transform: scale(1.05); box-shadow: 0 0 18px #10b981; }
+    
+    .gesture-guide { position: absolute; top: 110px; right: 24px; background: rgba(8, 15, 30, 0.90); backdrop-filter: blur(14px); border: 1px solid rgba(250, 204, 21, 0.4); padding: 14px 18px; border-radius: 14px; font-size: 0.82em; color: #fef08a; z-index: 20; max-width: 260px; line-height: 1.6; }
+    
+    .live-canvas-overlay { position: absolute; top: 110px; left: 24px; width: 300px; height: 180px; background: rgba(8, 15, 30, 0.94); border: 1px solid rgba(56,189,248,0.4); border-radius: 14px; z-index: 20; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+    .live-canvas-title { font-size: 0.74em; font-weight: 700; color: #38bdf8; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    #live-graph { width: 100%; height: 135px; background: #020617; border-radius: 8px; }
+    
+    @keyframes pulse { 0% { opacity: 1; transform:scale(1); } 50% { opacity: 0.4; transform:scale(0.8); } 100% { opacity: 1; transform:scale(1); } }
+  </style>
+</head>
+<body>
+  <div class="ui-overlay">
+    <div class="header-card">
+      <h1>🌊 ห้องปฏิบัติการ AR: ระบบระบายความร้อนเซิร์ฟเวอร์ AI จุ่มของเหลว</h1>
+      <p>จำลองการระบายความร้อน GPU AI Accelerator ในของเหลวไดอิเล็กทริก (Two-Phase Immersion Cooling) ดูการเปลี่ยนสถานะถ่ายเทความร้อน</p>
+      <div class="status-badge">
+        <span class="dot-pulse"></span>
+        <span id="status-text">AI 3D Hand Skeleton Tracking Active (60 FPS)</span>
+      </div>
+    </div>
+    <div class="control-panel">
+      <button class="btn-action" onclick="resetSim()">🔄 รีเซ็ตการทดลอง</button>
+      <button class="btn-action" style="background:linear-gradient(135deg, #8b5cf6, #ec4899); color:#fff;" onclick="triggerAction()">⚡ เร่งโหลด AI เต็มกำลัง (700W GPU)</button>
+      <button class="btn-action" style="background:#334155; color:#fff;" onclick="window.close()">✕ ปิดหน้าต่าง</button>
+    </div>
+  </div>
+
+  <div class="gesture-guide">
+    <strong>🖐️ ระบบควบคุมมิติเสมือนจริง:</strong><br>
+    • <strong>เลื่อนมือ:</strong> ปรับความร้อน/อุณหภูมิ 3D<br>
+    • <strong>🤏 จีบนิ้ว (Pinch):</strong> ป้อนความร้อน/เริ่มระบบหล่อเย็น<br>
+    • <strong>🔊 ระบบเสียง:</strong> เสียงฟิสิกส์สังเคราะห์แบบเรียลไทม์
+  </div>
+
+  
+
+  <div class="hud-bar">
+    
+          <div class="hud-item"><span class="hud-label">กำลังไฟฟ้า GPU (TDP)</span><span id="val-imm-tdp" class="hud-val">700 W</span></div>
+          <div class="hud-item"><span class="hud-label">อุณหภูมิ Die ชิป AI</span><span id="val-imm-temp" class="hud-val">52.4 °C</span></div>
+          <div class="hud-item"><span class="hud-label">ประสิทธิภาพ PUE</span><span class="hud-val">1.03 (Ultra-Green)</span></div>
+          <div class="hud-item"><span class="hud-label">สถานะการเดือดเปลี่ยนเฟส</span><span class="hud-val">TWO-PHASE ACTIVE</span></div>
+        
+  </div>
+
+  <div class="cam-box">
+    <video id="camera-feed" autoplay playsinline></video>
+    <canvas id="tracking-canvas"></canvas>
+  </div>
+
+  <div id="scene-container">
+    <a-scene embedded vr-mode-ui="enabled: false" shadow="type: pcfsoft">
+      <a-camera id="main-camera" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
+      <a-light type="ambient" color="#334155" intensity="1.2"></a-light>
+      <a-light type="directional" color="#10b981" intensity="2.2" position="-1.5 3.5 2.0" cast-shadow="true"></a-light>
+      <a-light type="point" color="#ffffff" intensity="1.0" position="0 2 -1"></a-light>
+      
+      <!-- Hyper-Realistic 3D Hand Cursor Indicator -->
+      <a-entity id="hand-pointer" position="0 1.4 -2.0">
+        <a-sphere radius="0.05" color="#10b981" material="emissive: #10b981; emissiveIntensity: 0.9;"></a-sphere>
+        <a-ring radius-inner="0.08" radius-outer="0.10" color="#facc15" rotation="0 0 0"></a-ring>
+        <a-ring radius-inner="0.12" radius-outer="0.13" color="#10b981" opacity="0.6" rotation="90 0 0"></a-ring>
+      </a-entity>
+
+      <!-- 3D Physics Apparatus Scene -->
+      
+          <a-entity id="immersion-rig" position="0 1.2 -2.5">
+            <!-- Transparent Tank -->
+            <a-box position="0 0 0" width="1.6" height="1.0" depth="1.0" color="#0284c7" opacity="0.35"></a-box>
+            <!-- Submerged Server Blade -->
+            <a-box position="0 -0.1 0" width="0.8" height="0.5" depth="0.1" color="#0f172a" material="metalness:0.9;">
+              <!-- GPU Core Glowing -->
+              <a-box position="0 0 0.06" width="0.25" height="0.25" depth="0.02" color="#00f0ff" material="emissive:#00f0ff; emissiveIntensity:0.9;"></a-box>
+            </a-box>
+          </a-entity>
+        
+
+      <a-sky color="#020617"></a-sky>
+    </a-scene>
+  </div>
+
+  <script>
+    // Web Audio Synthesizer
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function playBeep(freq = 880, type = 'sine', duration = 0.08) {
+      try {
+        if (!audioCtx) audioCtx = new AudioCtx();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch(e) {}
+    }
+
+    let smoothX = 0, smoothY = 1.3, smoothZ = -2.5;
+    let isPinching = false;
+    let lastPinchState = false;
+
+    const handPointer = document.getElementById('hand-pointer');
+    const videoElement = document.getElementById('camera-feed');
+    const canvasElement = document.getElementById('tracking-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusText = document.getElementById('status-text');
+
+    
+          const valTdp = document.getElementById('val-imm-tdp');
+          const valTemp = document.getElementById('val-imm-temp');
+
+          function resetSim() {
+            if (valTdp) valTdp.innerText = '700 W';
+            if (valTemp) valTemp.innerText = '52.4 °C';
+          }
+
+          function triggerAction() {
+            playBeep(1400, 'sine', 0.2);
+            if (valTdp) valTdp.innerText = '1,200 W (OVERCLOCK)';
+            if (valTemp) valTemp.innerText = '58.8 °C (Cooling Locked)';
+            if (statusText) statusText.innerText = '⚡ ของเหลวไดอิเล็กทริกเปลี่ยนเฟสกลายเป็นไอระบายความร้อน 1,200W ได้อย่างสมบูรณ์แบบ!';
+          }
+
+          function onHandUpdate(hx, hy, pinch) {
+            const tdp = Math.round(400 + Math.abs(hx) * 600);
+            const temp = (45 + (tdp - 400) * 0.02).toFixed(1);
+            if (valTdp) valTdp.innerText = `${tdp} W`;
+            if (valTemp) valTemp.innerText = `${temp} °C`;
+          }
+        
+
+    // MediaPipe Hands Engine
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+
+    const HAND_CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],
+      [9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],
+      [0,17]
+    ];
+
+    hands.onResults((res) => {
+      canvasElement.width = videoElement.videoWidth || 240;
+      canvasElement.height = videoElement.videoHeight || 180;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        const lm = res.multiHandLandmarks[0];
+        
+        canvasCtx.lineWidth = 2.5;
+        canvasCtx.strokeStyle = 'rgba(0, 240, 255, 0.7)';
+        for (let c of HAND_CONNECTIONS) {
+          const p1 = lm[c[0]], p2 = lm[c[1]];
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(p1.x * canvasElement.width, p1.y * canvasElement.height);
+          canvasCtx.lineTo(p2.x * canvasElement.width, p2.y * canvasElement.height);
+          canvasCtx.stroke();
+        }
+
+        for (let i = 0; i < lm.length; i++) {
+          canvasCtx.fillStyle = (i === 4 || i === 8) ? '#f43f5e' : '#10b981';
+          canvasCtx.beginPath();
+          canvasCtx.arc(lm[i].x * canvasElement.width, lm[i].y * canvasElement.height, 3.5, 0, 2*Math.PI);
+          canvasCtx.fill();
+        }
+
+        const idx = lm[8], thm = lm[4];
+        const dist = Math.sqrt((idx.x-thm.x)**2 + (idx.y-thm.y)**2);
+        isPinching = dist < 0.07;
+
+        if (isPinching && !lastPinchState) {
+          playBeep(1200, 'sine', 0.05);
+        }
+        lastPinchState = isPinching;
+
+        const targetWorldX = ((1 - idx.x) - 0.5) * 3.8;
+        const targetWorldY = (-(idx.y - 0.5) * 2.8) + 1.3;
+        smoothX += (targetWorldX - smoothX) * 0.35;
+        smoothY += (targetWorldY - smoothY) * 0.35;
+
+        if (handPointer) {
+          handPointer.setAttribute('position', `${smoothX.toFixed(3)} ${smoothY.toFixed(3)} -2.0`);
+          handPointer.children[0].setAttribute('color', isPinching ? '#f43f5e' : '#10b981');
+        }
+
+        if (typeof onHandUpdate === 'function') {
+          onHandUpdate(smoothX, smoothY, isPinching, idx);
+        }
+      }
+      canvasCtx.restore();
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    camera.start();
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# OS and IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Large local raw dumps if any
+*.tar.gz
+*.zip

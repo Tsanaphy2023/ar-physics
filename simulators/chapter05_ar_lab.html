@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ห้องปฏิบัติการ AR: การชน โมเมนตัม และการดล — RBRU MOOC AR Lab</title>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Prompt:wght@300;400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- A-Frame & MediaPipe CDN -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #030712; color: #f8fafc; font-family: 'Prompt', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+    
+    #scene-container { position: absolute; inset: 0; z-index: 1; }
+    
+    /* Camera & Canvas Feed */
+    .cam-box { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; border-radius: 14px; border: 2px solid #00f0ff; overflow: hidden; z-index: 10; box-shadow: 0 4px 25px rgba(0,240,255,0.4); background: #000; }
+    #camera-feed { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    #tracking-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 11; pointer-events: none; transform: scaleX(-1); }
+    
+    /* Top Header Overlay */
+    .ui-overlay { position: absolute; top: 0; left: 0; right: 0; z-index: 20; padding: 18px 24px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+    .header-card { background: rgba(8, 16, 36, 0.90); backdrop-filter: blur(12px); border: 1px solid rgba(0, 240, 255, 0.4); padding: 14px 20px; border-radius: 14px; max-width: 580px; pointer-events: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+    .header-card h1 { font-size: 1.15em; font-weight: 700; color: #00f0ff; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; font-family: 'Chakra Petch', sans-serif; }
+    .header-card p { font-size: 0.84em; color: #cbd5e1; line-height: 1.5; }
+    
+    /* Gesture Status Box */
+    .gesture-indicator { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.82em; color: #34d399; font-weight: 600; background: rgba(6, 78, 59, 0.5); padding: 4px 12px; border-radius: 20px; width: fit-content; border: 1px solid #10b981; }
+    .dot-pulse { width: 8px; height: 8px; background: #34d399; border-radius: 50%; box-shadow: 0 0 8px #34d399; animation: pulse 1.5s infinite; }
+    
+    /* Live Telemetry HUD */
+    .hud-bar { position: absolute; bottom: 20px; left: 24px; z-index: 20; background: rgba(8, 16, 36, 0.90); backdrop-filter: blur(12px); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 14px; padding: 14px 20px; display: flex; gap: 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+    .hud-item { display: flex; flex-direction: column; gap: 2px; }
+    .hud-label { font-size: 0.72em; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
+    .hud-val { font-size: 1.1em; color: #facc15; font-weight: 700; font-family: 'Chakra Petch', monospace; }
+    
+    /* Right Action Controls */
+    .control-panel { background: rgba(8, 16, 36, 0.90); backdrop-filter: blur(12px); border: 1px solid rgba(168, 85, 247, 0.4); padding: 12px 16px; border-radius: 14px; display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
+    .btn-action { background: linear-gradient(135deg, #0284c7, #00f0ff); color: #030712; font-weight: 700; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.84em; transition: all 0.2s; }
+    .btn-action:hover { transform: scale(1.05); box-shadow: 0 0 15px #00f0ff; }
+    .btn-action:active { transform: scale(0.95); }
+    
+    /* Gesture Help Pill */
+    .gesture-guide { position: absolute; top: 100px; right: 24px; background: rgba(8, 16, 36, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(250, 204, 21, 0.4); padding: 12px 16px; border-radius: 12px; font-size: 0.80em; color: #fef08a; z-index: 20; max-width: 250px; line-height: 1.5; }
+    
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+  </style>
+</head>
+<body>
+
+  <!-- Top UI Overlay -->
+  <div class="ui-overlay">
+    <div class="header-card">
+      <h1>💥 ห้องปฏิบัติการ AR: การชน โมเมนตัม และการดล</h1>
+      <p>ลากรถทดลองสองคันเข้าหากันด้วยมือ เพื่อศึกษาการอนุรักษ์โมเมนตัมและการลดแรงกระแทก</p>
+      <div class="gesture-indicator" id="gesture-status">
+        <span class="dot-pulse"></span>
+        <span id="status-text">กำลังรอกล้องและมือของผู้เรียน...</span>
+      </div>
+    </div>
+    
+    <div class="control-panel">
+      <button class="btn-action" id="btn-reset" onclick="resetObjectPosition()">🔄 รีเซ็ตตำแหน่งโมเดล</button>
+      <button class="btn-action" id="btn-boost" style="background:linear-gradient(135deg, #a855f7, #ec4899); color:#fff;" onclick="boostPhysicsEnergy()">⚡ เพิ่มพลังงานฟิสิกส์</button>
+      <button class="btn-action" style="background:#334155; color:#fff;" onclick="window.close()">✕ ปิดหน้าต่างนี้</button>
+    </div>
+  </div>
+
+  <!-- Gesture Guide Help -->
+  <div class="gesture-guide">
+    <strong>🖐️ คู่มือการควบคุมด้วยมือ:</strong><br>
+    • <strong>เลื่อนมือ:</strong> เคลื่อนย้ายตำแหน่งโมเดล 3D<br>
+    • <strong>🤏 จีบนิ้วชี้+โป้ง:</strong> จับยึดและหมุนโมเดล / คลิกปุ่ม<br>
+    • <strong>🖐️ กางฝ่ามือ:</strong> ขยายขนาดโมเดล
+  </div>
+
+  <!-- Real-time HUD Telemetry -->
+  <div class="hud-bar">
+    <div class="hud-item"><span class="hud-label">โมเมนตัมรวม (P)</span><span id="val-x" class="hud-val">12.5 kg·m/s</span></div><div class="hud-item"><span class="hud-label">พลังงานจลน์ (Ek)</span><span id="val-y" class="hud-val">45.0 J</span></div><div class="hud-item"><span class="hud-label">แรงดลเฉลี่ย (F)</span><span id="val-pitch" class="hud-val">150 N</span></div><div class="hud-item"><span class="hud-label">ชนิดการชน</span><span id="val-yaw" class="hud-val">ELASTIC</span></div>
+  </div>
+
+  <!-- Camera & Hand Tracking Feed -->
+  <div class="cam-box">
+    <video id="camera-feed" autoplay playsinline></video>
+    <canvas id="tracking-canvas"></canvas>
+  </div>
+
+  <!-- A-Frame 3D Scene -->
+  <div id="scene-container">
+    <a-scene embedded vr-mode-ui="enabled: false">
+      <a-camera id="main-camera" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
+      
+      <!-- Lighting -->
+      <a-light type="ambient" color="#1e293b" intensity="1.5"></a-light>
+      <a-light type="directional" color="#00f0ff" intensity="2" position="-1 3 2"></a-light>
+      <a-light type="point" color="#facc15" intensity="1.5" position="0 2 -2"></a-light>
+
+      <!-- 3D Virtual Hand Pointer (Cursor) -->
+      <a-sphere id="hand-pointer" radius="0.08" color="#00f0ff" material="emissive: #00f0ff; emissiveIntensity: 0.8;" position="0 1.5 -2">
+        <a-ring radius-inner="0.12" radius-outer="0.15" color="#facc15" rotation="0 0 0"></a-ring>
+      </a-sphere>
+
+      <!-- Interactive Chapter-Specific 3D Physics Simulation -->
+      
+            <a-entity id="target-interactive" position="0 1.2 -2.5">
+                <a-box id="cart-a" position="-0.8 0 0" width="0.6" height="0.3" depth="0.4" color="#ef4444"></a-box>
+                <a-box id="cart-b" position="0.8 0 0" width="0.6" height="0.3" depth="0.4" color="#3b82f6"></a-box>
+                <a-box position="0 -0.2 0" width="3.0" height="0.05" depth="0.6" color="#334155"></a-box>
+            </a-entity>
+        
+
+      <!-- Cyber Background Sky -->
+      <a-sky color="#030712"></a-sky>
+    </a-scene>
+  </div>
+
+  <script>
+    // ----------------------------------------------------
+    // Memory-Safe Variable Allocations (Loop Engineering)
+    // ----------------------------------------------------
+    const targetObj = document.getElementById('target-interactive');
+    const handPointer = document.getElementById('hand-pointer');
+    const videoElement = document.getElementById('camera-feed');
+    const canvasElement = document.getElementById('tracking-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusText = document.getElementById('status-text');
+
+    const valX = document.getElementById('val-x');
+    const valY = document.getElementById('val-y');
+    const valPitch = document.getElementById('val-pitch');
+    const valYaw = document.getElementById('val-yaw');
+
+    let isPinching = false;
+    let baseScale = 1.0;
+    let smoothX = 0, smoothY = 1.5, smoothZ = -2.5;
+    let smoothRotY = 0, smoothRotX = 0;
+
+    // Reset Function
+    function resetObjectPosition() {
+      smoothX = 0;
+      smoothY = 1.5;
+      smoothZ = -2.5;
+      smoothRotX = 0;
+      smoothRotY = 0;
+      baseScale = 1.0;
+      if (targetObj) {
+        targetObj.setAttribute('position', '0 1.5 -2.5');
+        targetObj.setAttribute('rotation', '0 0 0');
+        targetObj.setAttribute('scale', '1 1 1');
+      }
+      if (statusText) statusText.innerText = '🔄 รีเซ็ตตำแหน่งโมเดลเรียบร้อย';
+    }
+
+    // Boost Function
+    function boostPhysicsEnergy() {
+      baseScale = (baseScale >= 1.6) ? 1.0 : baseScale + 0.3;
+      if (targetObj) {
+        targetObj.setAttribute('scale', `${baseScale} ${baseScale} ${baseScale}`);
+      }
+      if (statusText) statusText.innerText = `⚡ ปรับขนาดพลังงาน: ${baseScale.toFixed(1)}x`;
+    }
+
+    // ----------------------------------------------------
+    // MediaPipe Hands Tracking & Direct 3D Interaction
+    // ----------------------------------------------------
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65
+    });
+
+    hands.onResults((results) => {
+      canvasElement.width = videoElement.videoWidth || 240;
+      canvasElement.height = videoElement.videoHeight || 180;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        
+        // 1. Draw 21-point Hand Skeleton
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = '#00f0ff';
+        canvasCtx.fillStyle = '#facc15';
+
+        for (let i = 0; i < landmarks.length; i++) {
+          const lx = landmarks[i].x * canvasElement.width;
+          const ly = landmarks[i].y * canvasElement.height;
+          canvasCtx.beginPath();
+          canvasCtx.arc(lx, ly, 3, 0, 2 * Math.PI);
+          canvasCtx.fill();
+        }
+
+        // 2. Key Tracking Landmarks
+        const indexTip = landmarks[8];
+        const thumbTip = landmarks[4];
+        const wrist = landmarks[0];
+        const middleTip = landmarks[12];
+
+        // 3. Pinch Calculation (Distance between Index & Thumb)
+        const dx = (indexTip.x - thumbTip.x);
+        const dy = (indexTip.y - thumbTip.y);
+        const pinchDist = Math.sqrt(dx * dx + dy * dy);
+        isPinching = pinchDist < 0.07;
+
+        // 4. Map 2D Camera Coordinates to 3D A-Frame World
+        // Note: Camera feed is mirrored, so X is inverted: (1 - indexTip.x)
+        const targetWorldX = ((1 - indexTip.x) - 0.5) * 4.0;
+        const targetWorldY = (-(indexTip.y - 0.5) * 3.0) + 1.5;
+        const targetWorldZ = -2.5;
+
+        // Exponential Smoothing for silky-smooth motion
+        smoothX += (targetWorldX - smoothX) * 0.25;
+        smoothY += (targetWorldY - smoothY) * 0.25;
+
+        // 5. Update 3D Hand Cursor
+        if (handPointer) {
+          handPointer.setAttribute('position', `${smoothX} ${smoothY} ${targetWorldZ}`);
+          handPointer.setAttribute('color', isPinching ? '#f43f5e' : '#00f0ff');
+        }
+
+        // 6. Direct Manipulation of the 3D Physics Object
+        if (targetObj) {
+          if (isPinching) {
+            // GRAB MODE: Object strictly follows the hand and rotates
+            smoothRotY += ((indexTip.x - 0.5) * 360 - smoothRotY) * 0.15;
+            smoothRotX += ((indexTip.y - 0.5) * 180 - smoothRotX) * 0.15;
+            
+            targetObj.setAttribute('position', `${smoothX} ${smoothY} ${targetWorldZ}`);
+            targetObj.setAttribute('rotation', `${smoothRotX.toFixed(1)} ${smoothRotY.toFixed(1)} 0`);
+            
+            if (statusText) statusText.innerText = '🤏 กำลังจับวัตถุ 3 มิติ (Pinch Grabbing)';
+            
+            // Virtual UI Click Trigger (AR Screen Mapping)
+            const screenX = (1 - indexTip.x) * window.innerWidth;
+            const screenY = indexTip.y * window.innerHeight;
+            const hitEl = document.elementFromPoint(screenX, screenY);
+            if (hitEl) {
+              const btn = hitEl.closest('button');
+              if (btn && !btn.dataset.clicked) {
+                btn.dataset.clicked = 'true';
+                btn.click();
+                btn.style.transform = 'scale(0.92)';
+                setTimeout(() => { btn.style.transform = ''; delete btn.dataset.clicked; }, 300);
+              }
+            }
+          } else {
+            // HOVER MODE: Object gently responds to spatial hand position
+            const hoverX = smoothX * 0.6;
+            const hoverY = smoothY;
+            targetObj.setAttribute('position', `${hoverX.toFixed(2)} ${hoverY.toFixed(2)} ${targetWorldZ}`);
+            if (statusText) statusText.innerText = '✋ ตรวจพบมือ: กำลังควบคุมพิกัด 3D';
+          }
+        }
+
+        // 7. Update Live HUD Telemetry
+        if (valX) valX.innerText = smoothX.toFixed(2) + ' m';
+        if (valY) valY.innerText = smoothY.toFixed(2) + ' m';
+        if (valPitch) valPitch.innerText = (isPinching ? 'GRABBED' : 'HOVER');
+        if (valYaw) valYaw.innerText = (pinchDist * 100).toFixed(0) + '% Pinch';
+
+      } else {
+        if (statusText) statusText.innerText = '👀 นำฝ่ามือเข้ามาในกล้องเพื่อเริ่มควบคุม...';
+      }
+      canvasCtx.restore();
+    });
+
+    // Initialize Camera
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 320,
+      height: 240
+    });
+    camera.start().catch((err) => {
+      if (statusText) statusText.innerText = '⚠️ ไม่สามารถเปิดกล้องได้: ' + err.message;
+    });
+  </script>
+</body>
+</html>

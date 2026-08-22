@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ห้องปฏิบัติการ AR: แท่นวัดแรงเสียดทานและแรงขับเคลื่อนล้อหุ่นยนต์ — RBRU MOOC Hyper-Realistic AR</title>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Prompt:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #020617; color: #f8fafc; font-family: 'Prompt', sans-serif; overflow: hidden; height: 100vh; width: 100vw; }
+    #scene-container { position: absolute; inset: 0; z-index: 1; }
+    
+    .cam-box { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; border-radius: 16px; border: 2px solid #f59e0b; overflow: hidden; z-index: 10; box-shadow: 0 10px 35px rgba(0,0,0,0.85); background: #000; }
+    #camera-feed { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    #tracking-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 11; pointer-events: none; transform: scaleX(-1); }
+    
+    .ui-overlay { position: absolute; top: 0; left: 0; right: 0; z-index: 20; padding: 18px 24px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+    .header-card { background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); border-left: 6px solid #f59e0b; padding: 16px 22px; border-radius: 16px; max-width: 600px; pointer-events: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.75); }
+    .header-card h1 { font-size: 1.18em; font-weight: 700; color: #f59e0b; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; font-family: 'Chakra Petch', sans-serif; }
+    .header-card p { font-size: 0.85em; color: #cbd5e1; line-height: 1.55; }
+    
+    .status-badge { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.80em; color: #34d399; font-weight: 600; background: rgba(6, 78, 59, 0.6); padding: 4px 14px; border-radius: 20px; border: 1px solid #10b981; }
+    .dot-pulse { width: 8px; height: 8px; background: #34d399; border-radius: 50%; box-shadow: 0 0 10px #34d399; animation: pulse 1.5s infinite; }
+    
+    .hud-bar { position: absolute; bottom: 20px; left: 24px; z-index: 20; background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 14px 24px; display: flex; gap: 24px; box-shadow: 0 12px 40px rgba(0,0,0,0.75); }
+    .hud-item { display: flex; flex-direction: column; gap: 2px; }
+    .hud-label { font-size: 0.70em; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .hud-val { font-size: 1.15em; color: #facc15; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    
+    .control-panel { background: rgba(8, 15, 30, 0.94); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.15); padding: 12px 18px; border-radius: 16px; display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
+    .btn-action { background: linear-gradient(135deg, #0284c7, #f59e0b); color: #020617; font-weight: 700; border: none; padding: 9px 18px; border-radius: 10px; cursor: pointer; font-size: 0.84em; transition: all 0.2s; }
+    .btn-action:hover { transform: scale(1.05); box-shadow: 0 0 18px #f59e0b; }
+    
+    .gesture-guide { position: absolute; top: 110px; right: 24px; background: rgba(8, 15, 30, 0.90); backdrop-filter: blur(14px); border: 1px solid rgba(250, 204, 21, 0.4); padding: 14px 18px; border-radius: 14px; font-size: 0.82em; color: #fef08a; z-index: 20; max-width: 260px; line-height: 1.6; }
+    
+    .live-canvas-overlay { position: absolute; top: 110px; left: 24px; width: 300px; height: 180px; background: rgba(8, 15, 30, 0.94); border: 1px solid rgba(56,189,248,0.4); border-radius: 14px; z-index: 20; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+    .live-canvas-title { font-size: 0.74em; font-weight: 700; color: #38bdf8; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    #live-graph { width: 100%; height: 135px; background: #020617; border-radius: 8px; }
+    
+    @keyframes pulse { 0% { opacity: 1; transform:scale(1); } 50% { opacity: 0.4; transform:scale(0.8); } 100% { opacity: 1; transform:scale(1); } }
+  </style>
+</head>
+<body>
+  <div class="ui-overlay">
+    <div class="header-card">
+      <h1>🏎️ ห้องปฏิบัติการ AR: แท่นวัดแรงเสียดทานและแรงขับเคลื่อนล้อหุ่นยนต์</h1>
+      <p>ทดสอบแรงเสียดทานสถิต ($f_s \le \mu_s N$) และแรงเสียดทานจลน์ ($f_k = \mu_k N$) ของล้อยางหุ่นยนต์บนพื้นผิวเหล็ก ยาง และน้ำแข็ง</p>
+      <div class="status-badge">
+        <span class="dot-pulse"></span>
+        <span id="status-text">AI 3D Hand Skeleton Tracking Active (60 FPS)</span>
+      </div>
+    </div>
+    <div class="control-panel">
+      <button class="btn-action" onclick="resetSim()">🔄 รีเซ็ตการทดลอง</button>
+      <button class="btn-action" style="background:linear-gradient(135deg, #8b5cf6, #ec4899); color:#fff;" onclick="triggerAction()">⚡ เปลี่ยนผิวสัมผัส (Surface)</button>
+      <button class="btn-action" style="background:#334155; color:#fff;" onclick="window.close()">✕ ปิดหน้าต่าง</button>
+    </div>
+  </div>
+
+  <div class="gesture-guide">
+    <strong>🖐️ ระบบควบคุมมิติเสมือนจริง:</strong><br>
+    • <strong>เลื่อนมือ:</strong> ปรับเวกเตอร์แรงและมุมเอียง 3D<br>
+    • <strong>🤏 จีบนิ้ว (Pinch):</strong> จับ ดึง หรือผลักวัตถุในอากาศ<br>
+    • <strong>🔊 ระบบเสียง:</strong> เสียงฟิสิกส์สังเคราะห์แบบเรียลไทม์
+  </div>
+
+  
+          <div class="live-canvas-overlay">
+            <div class="live-canvas-title"><span>📈 กราฟแรงเสียดทาน vs แรงดึง (F-f Graph)</span><span style="color:#f59e0b">fs,max Peak</span></div>
+            <canvas id="live-graph"></canvas>
+          </div>
+        
+
+  <div class="hud-bar">
+    
+          <div class="hud-item"><span class="hud-label">แรงดึงภายนอก (F)</span><span id="val-force" class="hud-val">12.5 N</span></div>
+          <div class="hud-item"><span class="hud-label">แรงเสียดทานสูงสุด (fs,max)</span><span id="val-fs" class="hud-val">14.7 N</span></div>
+          <div class="hud-item"><span class="hud-label">สัมประสิทธิ์ (μs / μk)</span><span id="val-mu" class="hud-val">0.75 / 0.60</span></div>
+          <div class="hud-item"><span class="hud-label">สถานะการเคลื่อนที่</span><span id="val-motion" class="hud-val">อยู่นิ่ง (STATIC)</span></div>
+        
+  </div>
+
+  <div class="cam-box">
+    <video id="camera-feed" autoplay playsinline></video>
+    <canvas id="tracking-canvas"></canvas>
+  </div>
+
+  <div id="scene-container">
+    <a-scene embedded vr-mode-ui="enabled: false" shadow="type: pcfsoft">
+      <a-camera id="main-camera" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
+      <a-light type="ambient" color="#334155" intensity="1.2"></a-light>
+      <a-light type="directional" color="#f59e0b" intensity="2.2" position="-1.5 3.5 2.0" cast-shadow="true"></a-light>
+      <a-light type="point" color="#ffffff" intensity="1.0" position="0 2 -1"></a-light>
+      
+      <!-- Hyper-Realistic 3D Hand Cursor Indicator -->
+      <a-entity id="hand-pointer" position="0 1.4 -2.0">
+        <a-sphere radius="0.05" color="#f59e0b" material="emissive: #f59e0b; emissiveIntensity: 0.9;"></a-sphere>
+        <a-ring radius-inner="0.08" radius-outer="0.10" color="#facc15" rotation="0 0 0"></a-ring>
+        <a-ring radius-inner="0.12" radius-outer="0.13" color="#f59e0b" opacity="0.6" rotation="90 0 0"></a-ring>
+      </a-entity>
+
+      <!-- 3D Physics Apparatus Scene -->
+      
+          <a-entity id="tribo-rig" position="0 1.2 -2.5">
+            <!-- Test Bed Platform -->
+            <a-box position="0 -0.2 0" width="3.2" height="0.08" depth="1.2" color="#334155" material="metalness:0.8;"></a-box>
+            <!-- Test Specimen Block with Normal Load Weights -->
+            <a-entity id="friction-block" position="-0.6 0 0">
+              <a-box width="0.6" height="0.25" depth="0.4" color="#0284c7" material="metalness:0.7;"></a-box>
+              <!-- Brass Load Disk -->
+              <a-cylinder position="0 0.18 0" radius="0.15" height="0.08" color="#facc15" material="metalness:0.9;"></a-cylinder>
+              <!-- Pulling Force Arrow -->
+              <a-cylinder position="0.45 0 0" radius="0.015" height="0.4" rotation="0 0 -90" color="#f43f5e"></a-cylinder>
+            </a-entity>
+          </a-entity>
+        
+
+      <a-sky color="#020617"></a-sky>
+    </a-scene>
+  </div>
+
+  <script>
+    // Web Audio Synthesizer
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function playBeep(freq = 880, type = 'sine', duration = 0.08) {
+      try {
+        if (!audioCtx) audioCtx = new AudioCtx();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch(e) {}
+    }
+
+    let smoothX = 0, smoothY = 1.3, smoothZ = -2.5;
+    let isPinching = false;
+    let lastPinchState = false;
+
+    const handPointer = document.getElementById('hand-pointer');
+    const videoElement = document.getElementById('camera-feed');
+    const canvasElement = document.getElementById('tracking-canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusText = document.getElementById('status-text');
+
+    
+          const fBlock = document.getElementById('friction-block');
+          const valF = document.getElementById('val-force');
+          const valFs = document.getElementById('val-fs');
+          const valMot = document.getElementById('val-motion');
+          const gCanvas = document.getElementById('live-graph');
+          const gCtx = gCanvas ? gCanvas.getContext('2d') : null;
+          let forceApplied = 12.5;
+
+          function resetSim() {
+            if (fBlock) fBlock.setAttribute('position', '-0.6 0 0');
+          }
+
+          function triggerAction() {
+            playBeep(650, 'sawtooth', 0.15);
+            if (statusText) statusText.innerText = '⚡ สลับสภาพผิวทดสอบ: ยางบนน้ำแข็ง (μs = 0.15, μk = 0.08) เกิดการลื่นไถลทันที!';
+          }
+
+          function onHandUpdate(hx, hy, pinch) {
+            forceApplied = Math.max(0, (hx + 1.2) * 15);
+            const fsMax = 14.7;
+            const isMoving = forceApplied > fsMax;
+
+            if (valF) valF.innerText = `${forceApplied.toFixed(1)} N`;
+            if (valMot) valMot.innerText = isMoving ? 'ลื่นไถล (SLIPPING)' : 'อยู่นิ่ง (STATIC)';
+
+            if (fBlock) {
+              const bx = isMoving ? (-0.6 + (forceApplied - fsMax)*0.1) : -0.6;
+              fBlock.setAttribute('position', `${bx.toFixed(2)} 0 0`);
+            }
+
+            if (gCtx) {
+              gCtx.fillStyle = '#020617';
+              gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
+              gCtx.strokeStyle = '#f59e0b'; gCtx.lineWidth = 2.5;
+              gCtx.beginPath();
+              gCtx.moveTo(20, gCanvas.height - 20);
+              gCtx.lineTo(120, gCanvas.height - 90); // Peak
+              gCtx.lineTo(130, gCanvas.height - 75); // Drop to fk
+              gCtx.lineTo(gCanvas.width - 20, gCanvas.height - 75);
+              gCtx.stroke();
+            }
+          }
+        
+
+    // MediaPipe Hands Engine
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+
+    const HAND_CONNECTIONS = [
+      [0,1],[1,2],[2,3],[3,4],
+      [0,5],[5,6],[6,7],[7,8],
+      [5,9],[9,10],[10,11],[11,12],
+      [9,13],[13,14],[14,15],[15,16],
+      [13,17],[17,18],[18,19],[19,20],
+      [0,17]
+    ];
+
+    hands.onResults((res) => {
+      canvasElement.width = videoElement.videoWidth || 240;
+      canvasElement.height = videoElement.videoHeight || 180;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        const lm = res.multiHandLandmarks[0];
+        
+        canvasCtx.lineWidth = 2.5;
+        canvasCtx.strokeStyle = 'rgba(0, 240, 255, 0.7)';
+        for (let c of HAND_CONNECTIONS) {
+          const p1 = lm[c[0]], p2 = lm[c[1]];
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(p1.x * canvasElement.width, p1.y * canvasElement.height);
+          canvasCtx.lineTo(p2.x * canvasElement.width, p2.y * canvasElement.height);
+          canvasCtx.stroke();
+        }
+
+        for (let i = 0; i < lm.length; i++) {
+          canvasCtx.fillStyle = (i === 4 || i === 8) ? '#f43f5e' : '#f59e0b';
+          canvasCtx.beginPath();
+          canvasCtx.arc(lm[i].x * canvasElement.width, lm[i].y * canvasElement.height, 3.5, 0, 2*Math.PI);
+          canvasCtx.fill();
+        }
+
+        const idx = lm[8], thm = lm[4];
+        const dist = Math.sqrt((idx.x-thm.x)**2 + (idx.y-thm.y)**2);
+        isPinching = dist < 0.07;
+
+        if (isPinching && !lastPinchState) {
+          playBeep(1200, 'sine', 0.05);
+        }
+        lastPinchState = isPinching;
+
+        const targetWorldX = ((1 - idx.x) - 0.5) * 3.8;
+        const targetWorldY = (-(idx.y - 0.5) * 2.8) + 1.3;
+        smoothX += (targetWorldX - smoothX) * 0.35;
+        smoothY += (targetWorldY - smoothY) * 0.35;
+
+        if (handPointer) {
+          handPointer.setAttribute('position', `${smoothX.toFixed(3)} ${smoothY.toFixed(3)} -2.0`);
+          handPointer.children[0].setAttribute('color', isPinching ? '#f43f5e' : '#f59e0b');
+        }
+
+        if (typeof onHandUpdate === 'function') {
+          onHandUpdate(smoothX, smoothY, isPinching, idx);
+        }
+      }
+      canvasCtx.restore();
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({ image: videoElement }); },
+      width: 320, height: 240
+    });
+    camera.start();
+  </script>
+</body>
+</html>
